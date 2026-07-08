@@ -134,6 +134,13 @@ def concatenate_videos(
     Concatenate *video_paths* in order using ffmpeg's concat filter.
 
     When *with_audio* is True, audio streams are merged as well.
+
+    All video streams are normalised to yuv420p and all audio streams are
+    resampled to 44100 Hz stereo before concatenation.  This prevents
+    "Invalid argument" / "Nothing was written into output file" errors that
+    arise when the source video uses a different pixel format (e.g. yuvj420p)
+    or different audio parameters (e.g. mono, 48000 Hz) than the generated
+    image clips.
     """
     inputs = []
     for path in video_paths:
@@ -142,8 +149,18 @@ def concatenate_videos(
     n = len(video_paths)
 
     if with_audio:
-        filter_inputs = "".join(f"[{i}:v][{i}:a]" for i in range(n))
-        filter_complex = f"{filter_inputs}concat=n={n}:v=1:a=1[outv][outa]"
+        # Normalise each stream before feeding into concat so that pixel
+        # format and audio parameters are consistent across all inputs.
+        filter_parts = []
+        for i in range(n):
+            filter_parts.append(f"[{i}:v]format=yuv420p[v{i}]")
+            filter_parts.append(
+                f"[{i}:a]aresample=44100,"
+                f"aformat=sample_fmts=fltp:channel_layouts=stereo[a{i}]"
+            )
+        concat_in = "".join(f"[v{i}][a{i}]" for i in range(n))
+        filter_parts.append(f"{concat_in}concat=n={n}:v=1:a=1[outv][outa]")
+        filter_complex = ";".join(filter_parts)
         cmd = (
             ["ffmpeg", "-y"]
             + inputs
@@ -157,8 +174,13 @@ def concatenate_videos(
             ]
         )
     else:
-        filter_inputs = "".join(f"[{i}:v]" for i in range(n))
-        filter_complex = f"{filter_inputs}concat=n={n}:v=1:a=0[outv]"
+        # Normalise each video stream to yuv420p.
+        filter_parts = []
+        for i in range(n):
+            filter_parts.append(f"[{i}:v]format=yuv420p[v{i}]")
+        concat_in = "".join(f"[v{i}]" for i in range(n))
+        filter_parts.append(f"{concat_in}concat=n={n}:v=1:a=0[outv]")
+        filter_complex = ";".join(filter_parts)
         cmd = (
             ["ffmpeg", "-y"]
             + inputs
