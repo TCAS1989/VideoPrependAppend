@@ -230,12 +230,18 @@ def main() -> None:
     # --- Process each video -----------------------------------------------
     success_count = 0
     error_count = 0
+    skip_count = 0
 
     for video_path in sorted(video_files):
         filename = os.path.basename(video_path)
         output_path = os.path.join(OUTPUT_DIR, filename)
 
-        print(f"[{success_count + error_count + 1}/{len(video_files)}] Processing: {filename}")
+        print(f"[{success_count + error_count + skip_count + 1}/{len(video_files)}] Processing: {filename}")
+
+        if os.path.isfile(output_path):
+            print(f"  Skipping — output already exists: {output_path}\n")
+            skip_count += 1
+            continue
 
         try:
             info = get_video_info(video_path)
@@ -285,7 +291,7 @@ def main() -> None:
 
     # --- Summary ----------------------------------------------------------
     print("=" * 50)
-    print(f"Done. {success_count} succeeded, {error_count} failed.")
+    print(f"Done. {success_count} succeeded, {error_count} failed, {skip_count} skipped.")
     if success_count:
         print(f"Modified videos are in './{OUTPUT_DIR}/'.")
 
