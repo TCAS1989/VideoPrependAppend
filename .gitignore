@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.env
+.venv
+venv/
+env/
+
+# Output videos (keep the folder, ignore the content)
+ModifiedVids/*
+!ModifiedVids/.gitkeep
+
+# Source videos are user-provided; keep folder, ignore content
+SourceVids/*
+!SourceVids/.gitkeep
+
+# User-provided image assets
+PrependAsset.png
+AppendAsset.png
+
+# OS / editor artefacts
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+.idea/
+.vscode/
