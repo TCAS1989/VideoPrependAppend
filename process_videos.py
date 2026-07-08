@@ -151,12 +151,13 @@ def concatenate_videos(
 
     if with_audio:
         # Normalise each stream before feeding into concat so that pixel
-        # format and audio parameters are consistent across all inputs.
+        # format, SAR, and audio parameters are consistent across all inputs.
+        # setsar=1 forces a 1:1 sample aspect ratio to match the image clips.
         # A single aformat with all three constraints lets libswresample
         # perform format, rate, and channel-layout conversion together.
         filter_parts = []
         for i in range(n):
-            filter_parts.append(f"[{i}:v]format=yuv420p[v{i}]")
+            filter_parts.append(f"[{i}:v]format=yuv420p,setsar=1[v{i}]")
             filter_parts.append(
                 f"[{i}:a]aformat=sample_fmts=fltp"
                 f":sample_rates=44100:channel_layouts=stereo[a{i}]"
@@ -179,10 +180,10 @@ def concatenate_videos(
             ]
         )
     else:
-        # Normalise each video stream to yuv420p.
+        # Normalise each video stream to yuv420p with a 1:1 SAR.
         filter_parts = []
         for i in range(n):
-            filter_parts.append(f"[{i}:v]format=yuv420p[v{i}]")
+            filter_parts.append(f"[{i}:v]format=yuv420p,setsar=1[v{i}]")
         concat_in = "".join(f"[v{i}]" for i in range(n))
         filter_parts.append(f"{concat_in}concat=n={n}:v=1:a=0[outv]")
         filter_complex = ";".join(filter_parts)
