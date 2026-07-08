@@ -69,9 +69,13 @@ def get_video_fps(info: dict) -> float:
     for stream in info.get("streams", []):
         if stream.get("codec_type") == "video":
             fps_str = stream.get("r_frame_rate", "25/1")
-            num, den = fps_str.split("/")
-            den = int(den)
-            return float(num) / den if den else 25.0
+            try:
+                num, den = fps_str.split("/")
+                num, den = int(num), int(den)
+                if den != 0:
+                    return float(num) / den
+            except (ValueError, ZeroDivisionError):
+                pass
     return 25.0
 
 
