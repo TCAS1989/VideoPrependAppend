@@ -136,11 +136,12 @@ def concatenate_videos(
     When *with_audio* is True, audio streams are merged as well.
 
     All video streams are normalised to yuv420p and all audio streams are
-    resampled to 44100 Hz stereo before concatenation.  This prevents
-    "Invalid argument" / "Nothing was written into output file" errors that
-    arise when the source video uses a different pixel format (e.g. yuvj420p)
-    or different audio parameters (e.g. mono, 48000 Hz) than the generated
-    image clips.
+    normalised to fltp / 44100 Hz / stereo before concatenation.  Using a
+    single aformat filter with all three parameters (sample_fmts, sample_rates,
+    channel_layouts) ensures that libswresample handles sample-format, rate, and
+    channel-layout conversion in one pass — including mono-to-stereo upmixing
+    and surround-to-stereo downmixing.  The encoder-level -ac/-ar options act
+    as a belt-and-suspenders fallback.
     """
     inputs = []
     for path in video_paths:
@@ -151,12 +152,14 @@ def concatenate_videos(
     if with_audio:
         # Normalise each stream before feeding into concat so that pixel
         # format and audio parameters are consistent across all inputs.
+        # A single aformat with all three constraints lets libswresample
+        # perform format, rate, and channel-layout conversion together.
         filter_parts = []
         for i in range(n):
             filter_parts.append(f"[{i}:v]format=yuv420p[v{i}]")
             filter_parts.append(
-                f"[{i}:a]aresample=44100,"
-                f"aformat=sample_fmts=fltp:channel_layouts=stereo[a{i}]"
+                f"[{i}:a]aformat=sample_fmts=fltp"
+                f":sample_rates=44100:channel_layouts=stereo[a{i}]"
             )
         concat_in = "".join(f"[v{i}][a{i}]" for i in range(n))
         filter_parts.append(f"{concat_in}concat=n={n}:v=1:a=1[outv][outa]")
@@ -170,6 +173,8 @@ def concatenate_videos(
                 "-map", "[outa]",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                 "-c:a", "aac",
+                "-ar", "44100",
+                "-ac", "2",
                 output_path,
             ]
         )
@@ -284,8 +289,8 @@ def main() -> None:
             print(f"  ERROR processing '{filename}'.")
             stderr = exc.stderr.decode(errors="replace") if exc.stderr else ""
             if stderr:
-                # Show only the last few lines to keep output readable
-                last_lines = stderr.strip().splitlines()[-5:]
+                # Show the last 20 lines so the relevant ffmpeg error is visible
+                last_lines = stderr.strip().splitlines()[-20:]
                 print("  ffmpeg output (last lines):\n    " + "\n    ".join(last_lines))
             print()
 
