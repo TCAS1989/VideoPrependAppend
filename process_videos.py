@@ -134,6 +134,14 @@ def concatenate_videos(
     Concatenate *video_paths* in order using ffmpeg's concat filter.
 
     When *with_audio* is True, audio streams are merged as well.
+
+    All video streams are normalised to yuv420p and all audio streams are
+    normalised to fltp / 44100 Hz / stereo before concatenation.  Using a
+    single aformat filter with all three parameters (sample_fmts, sample_rates,
+    channel_layouts) ensures that libswresample handles sample-format, rate, and
+    channel-layout conversion in one pass — including mono-to-stereo upmixing
+    and surround-to-stereo downmixing.  The encoder-level -ac/-ar options act
+    as a belt-and-suspenders fallback.
     """
     inputs = []
     for path in video_paths:
@@ -142,8 +150,21 @@ def concatenate_videos(
     n = len(video_paths)
 
     if with_audio:
-        filter_inputs = "".join(f"[{i}:v][{i}:a]" for i in range(n))
-        filter_complex = f"{filter_inputs}concat=n={n}:v=1:a=1[outv][outa]"
+        # Normalise each stream before feeding into concat so that pixel
+        # format, SAR, and audio parameters are consistent across all inputs.
+        # setsar=1 forces a 1:1 sample aspect ratio to match the image clips.
+        # A single aformat with all three constraints lets libswresample
+        # perform format, rate, and channel-layout conversion together.
+        filter_parts = []
+        for i in range(n):
+            filter_parts.append(f"[{i}:v]format=yuv420p,setsar=1[v{i}]")
+            filter_parts.append(
+                f"[{i}:a]aformat=sample_fmts=fltp"
+                f":sample_rates=44100:channel_layouts=stereo[a{i}]"
+            )
+        concat_in = "".join(f"[v{i}][a{i}]" for i in range(n))
+        filter_parts.append(f"{concat_in}concat=n={n}:v=1:a=1[outv][outa]")
+        filter_complex = ";".join(filter_parts)
         cmd = (
             ["ffmpeg", "-y"]
             + inputs
@@ -153,12 +174,19 @@ def concatenate_videos(
                 "-map", "[outa]",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                 "-c:a", "aac",
+                "-ar", "44100",
+                "-ac", "2",
                 output_path,
             ]
         )
     else:
-        filter_inputs = "".join(f"[{i}:v]" for i in range(n))
-        filter_complex = f"{filter_inputs}concat=n={n}:v=1:a=0[outv]"
+        # Normalise each video stream to yuv420p with a 1:1 SAR.
+        filter_parts = []
+        for i in range(n):
+            filter_parts.append(f"[{i}:v]format=yuv420p,setsar=1[v{i}]")
+        concat_in = "".join(f"[v{i}]" for i in range(n))
+        filter_parts.append(f"{concat_in}concat=n={n}:v=1:a=0[outv]")
+        filter_complex = ";".join(filter_parts)
         cmd = (
             ["ffmpeg", "-y"]
             + inputs
@@ -208,12 +236,18 @@ def main() -> None:
     # --- Process each video -----------------------------------------------
     success_count = 0
     error_count = 0
+    skip_count = 0
 
     for video_path in sorted(video_files):
         filename = os.path.basename(video_path)
         output_path = os.path.join(OUTPUT_DIR, filename)
 
-        print(f"[{success_count + error_count + 1}/{len(video_files)}] Processing: {filename}")
+        print(f"[{success_count + error_count + skip_count + 1}/{len(video_files)}] Processing: {filename}")
+
+        if os.path.isfile(output_path):
+            print(f"  Skipping — output already exists: {output_path}\n")
+            skip_count += 1
+            continue
 
         try:
             info = get_video_info(video_path)
@@ -256,14 +290,14 @@ def main() -> None:
             print(f"  ERROR processing '{filename}'.")
             stderr = exc.stderr.decode(errors="replace") if exc.stderr else ""
             if stderr:
-                # Show only the last few lines to keep output readable
-                last_lines = stderr.strip().splitlines()[-5:]
+                # Show the last 20 lines so the relevant ffmpeg error is visible
+                last_lines = stderr.strip().splitlines()[-20:]
                 print("  ffmpeg output (last lines):\n    " + "\n    ".join(last_lines))
             print()
 
     # --- Summary ----------------------------------------------------------
     print("=" * 50)
-    print(f"Done. {success_count} succeeded, {error_count} failed.")
+    print(f"Done. {success_count} succeeded, {error_count} failed, {skip_count} skipped.")
     if success_count:
         print(f"Modified videos are in './{OUTPUT_DIR}/'.")
 
