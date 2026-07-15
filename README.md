@@ -58,6 +58,12 @@ full-screen for 5 seconds.
 `AppendAsset.png`. Those override the built-in placeholders for every user of
 that copy.
 
+**Where the official images live:** the current WGU intro/outro always live in
+this repo's [`assets/`](assets) folder. Branding rarely changes, but if it ever
+does, download the latest two PNGs from there and either drop them next to the
+app (admin tip above) or pick them via **Choose…** — no full re-download
+needed. The bundled release is simply a snapshot of those same repo images.
+
 ### Supported video formats
 
 `.mp4`, `.avi`, `.mov`, `.mkv`, `.wmv`, `.flv`, `.m4v`
