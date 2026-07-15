@@ -17,8 +17,8 @@ from PyInstaller.utils.hooks import collect_data_files
 datas = [
     ("ffmpeg/ffmpeg.exe", "ffmpeg"),
     ("ffmpeg/ffprobe.exe", "ffmpeg"),
-    ("assets/PrependAsset.png", "assets"),
-    ("assets/AppendAsset.png", "assets"),
+    ("assets/intro_template.png", "assets"),   # WGU title slide (intro)
+    ("assets/AppendAsset.png", "assets"),      # WGU end slide (outro)
 ]
 # tkinterdnd2 ships the tkdnd tcl library it needs at runtime.
 datas += collect_data_files("tkinterdnd2")

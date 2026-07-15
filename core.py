@@ -41,8 +41,33 @@ VIDEO_EXTENSIONS = (
 
 # Default (baked-in) branding assets.  These live in ./assets and are bundled
 # into the .exe.  Power users can override them at run time.
+#
+#   intro_template.png : WGU slide 2 with EMPTY title boxes -- the per-video
+#                        Video Title / Course Title are drawn on at run time.
+#   AppendAsset.png    : WGU slide 4 -- the static outro (no editing).
+# PrependAsset.png is kept only as a fallback static intro for custom setups.
+DEFAULT_INTRO_TEMPLATE = "intro_template.png"
 DEFAULT_PREPEND_ASSET = "PrependAsset.png"
 DEFAULT_APPEND_ASSET = "AppendAsset.png"
+
+# --- Intro title layout, measured from the WGU slide-2 template --------------
+# Slide is 13.333 x 7.5 in rendered at 1920x1080  => 144 px per inch.
+INTRO_PX_PER_INCH = 144.0
+# (left, top, width, height) of each placeholder, in inches, from the .pptx.
+INTRO_TITLE_BOX = (0.73, 2.77, 11.58, 1.07)   # Video Title
+INTRO_SUBTITLE_BOX = (0.73, 4.17, 11.58, 1.81)  # Course Title
+INTRO_TITLE_PT = 60        # Arial 60, left aligned, bottom anchored
+INTRO_SUBTITLE_PT = 24     # Arial 24, left aligned, top anchored
+INTRO_TITLE_MIN_PT = 24    # shrink-to-fit floor for very long titles
+# Bottom-anchored titles grow upward; cap the block height so a long, wrapped
+# title shrinks (like PowerPoint autofit) instead of running into the header.
+INTRO_TITLE_MAX_HEIGHT_IN = 2.3
+INTRO_TEXT_COLOR = (255, 255, 255)
+INTRO_TEXT_INSET_IN = 0.1  # PowerPoint default left/right text inset
+# Nudge the title up slightly so its baseline clears the green underline,
+# matching PowerPoint's bottom-anchored rendering.
+INTRO_TITLE_LIFT_IN = 0.06
+INTRO_FONT = "arial.ttf"
 
 # On Windows we don't want a console window to flash for every ffmpeg call
 # when running from the GUI .exe.
@@ -266,6 +291,120 @@ def get_duration(info: dict) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Intro rendering (Video Title / Course Title drawn onto the WGU template)
+# ---------------------------------------------------------------------------
+
+def intro_template_path() -> str:
+    """Path to the intro background (drop-in override wins, else bundled)."""
+    settings = load_settings()
+    saved = settings.get("intro_template")
+    if saved and os.path.isfile(saved):
+        return saved
+    return default_asset(DEFAULT_INTRO_TEMPLATE)
+
+
+def _px(inches: float) -> int:
+    return int(round(inches * INTRO_PX_PER_INCH))
+
+
+def _load_font(pt: int):
+    """Load Arial at *pt* points (2 px/pt at 144 ppi). Falls back gracefully."""
+    from PIL import ImageFont
+    px = _px(pt / 72.0)
+    for name in (INTRO_FONT, "C:/Windows/Fonts/arial.ttf",
+                 "DejaVuSans.ttf"):
+        try:
+            return ImageFont.truetype(name, px)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def _wrap_text(draw, text: str, font, max_width: int) -> list:
+    """Greedy word-wrap *text* to fit *max_width* px; returns a list of lines."""
+    words = text.split()
+    if not words:
+        return []
+    lines, cur = [], words[0]
+    for w in words[1:]:
+        trial = cur + " " + w
+        if draw.textlength(trial, font=font) <= max_width:
+            cur = trial
+        else:
+            lines.append(cur)
+            cur = w
+    lines.append(cur)
+    return lines
+
+
+def render_intro(template_path: str, video_title: str, course_title: str,
+                 out_path: str) -> None:
+    """
+    Draw *video_title* and *course_title* onto the WGU intro template.
+
+    Reproduces the slide-2 placeholders: the Video Title in Arial 60 (left,
+    bottom-anchored, shrinking to fit very long titles) just above the green
+    line, and the Course Title in Arial 24 (left, top-anchored, wrapping)
+    below it.  Empty strings are simply skipped, so a title is optional.
+    """
+    from PIL import Image, ImageDraw
+
+    img = Image.open(template_path).convert("RGB")
+    draw = ImageDraw.Draw(img)
+    inset = _px(INTRO_TEXT_INSET_IN)
+
+    # --- Video Title: wrapped, bottom-anchored (grows upward) --------------
+    # Like PowerPoint autofit: wrap to the box width at 60pt; only shrink the
+    # font if a single word is still too wide to fit on a line.
+    vt = (video_title or "").strip()
+    if vt:
+        tb_left, tb_top, tb_w, tb_h = INTRO_TITLE_BOX
+        max_w = _px(tb_w) - 2 * inset
+        max_h = _px(INTRO_TITLE_MAX_HEIGHT_IN)
+        pt = INTRO_TITLE_PT
+
+        def _layout(size):
+            f = _load_font(size)
+            wrapped = _wrap_text(draw, vt, f, max_w)
+            ext = draw.textbbox((0, 0), "Ag", font=f)
+            lh = int((ext[3] - ext[1]) * 1.2)
+            too_wide = any(draw.textlength(ln, font=f) > max_w
+                          for ln in wrapped)
+            return f, wrapped, lh, too_wide
+
+        font, lines, line_h, too_wide = _layout(pt)
+        # Shrink until it fits the width and the height budget (or hits floor).
+        while pt > INTRO_TITLE_MIN_PT and (
+                too_wide or line_h * len(lines) > max_h):
+            pt -= 2
+            font, lines, line_h, too_wide = _layout(pt)
+        x = _px(tb_left) + inset
+        box_bottom = _px(tb_top + tb_h) - _px(INTRO_TITLE_LIFT_IN)
+        # Bottom-anchor the block: last line sits on the box bottom.
+        start_y = box_bottom - line_h * len(lines)
+        for i, line in enumerate(lines):
+            draw.text((x, start_y + i * line_h), line, font=font,
+                     fill=INTRO_TEXT_COLOR)
+
+    # --- Course Title: top-anchored, wrapped -------------------------------
+    ct = (course_title or "").strip()
+    if ct:
+        sb_left, sb_top, sb_w, sb_h = INTRO_SUBTITLE_BOX
+        max_w = _px(sb_w) - 2 * inset
+        font = _load_font(INTRO_SUBTITLE_PT)
+        x = _px(sb_left) + inset
+        y = _px(sb_top) + _px(0.05)  # small top inset
+        ascent = draw.textbbox((0, 0), "Ag", font=font)
+        line_h = int((ascent[3] - ascent[1]) * 1.2)
+        for line in _wrap_text(draw, ct, font, max_w):
+            draw.text((x, y), line, font=font, fill=INTRO_TEXT_COLOR)
+            y += line_h
+
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    img.save(out_path)
+
+
+# ---------------------------------------------------------------------------
 # ffmpeg building blocks
 # ---------------------------------------------------------------------------
 
@@ -445,6 +584,9 @@ def process_video(
     add_branding: bool = True,
     prepend_asset: str = "",
     append_asset: str = "",
+    intro_template: str = "",
+    video_title: str = "",
+    course_title: str = "",
     trim_start: float = 0.0,
     trim_end: float = 0.0,
     clip_duration: int = CLIP_DURATION,
@@ -457,8 +599,13 @@ def process_video(
     Parameters
     ----------
     input_path, output_path : source and destination file paths.
-    add_branding : prepend/append the branding image clips.
-    prepend_asset, append_asset : branding images (required if add_branding).
+    add_branding : prepend an intro and append an outro clip.
+    intro_template : WGU slide-2 background to draw the titles onto. When set,
+        the intro is rendered from it plus *video_title* / *course_title*.
+    video_title, course_title : text drawn on the intro (both optional).
+    prepend_asset : static intro image, used only when *intro_template* is
+        empty (custom/legacy setups).
+    append_asset : the outro image (required if add_branding).
     trim_start, trim_end : seconds to cut from start / end (0 = no trim).
     clip_duration : length of each branding clip in seconds.
     log : callback taking a status string (for progress display).
@@ -507,18 +654,29 @@ def process_video(
             return
 
         # Branding path (with optional trim folded into the concat pass).
-        for asset, label in ((prepend_asset, "prepend"),
-                             (append_asset, "append")):
-            if not asset or not os.path.isfile(asset):
-                raise ProcessError(f"Branding image not found: {asset}")
+        if not append_asset or not os.path.isfile(append_asset):
+            raise ProcessError(f"Outro image not found: {append_asset}")
+        if not intro_template and (
+                not prepend_asset or not os.path.isfile(prepend_asset)):
+            raise ProcessError("No intro template or intro image available.")
+        if intro_template and not os.path.isfile(intro_template):
+            raise ProcessError(f"Intro template not found: {intro_template}")
 
         base_tmp = tempdir or os.path.dirname(os.path.abspath(output_path))
         with tempfile.TemporaryDirectory(dir=base_tmp) as tmpdir:
             prepend_clip = os.path.join(tmpdir, "prepend.mp4")
             append_clip = os.path.join(tmpdir, "append.mp4")
 
+            # Render the per-video intro image from the template + titles.
+            if intro_template:
+                intro_img = os.path.join(tmpdir, "intro.png")
+                render_intro(intro_template, video_title, course_title,
+                            intro_img)
+            else:
+                intro_img = prepend_asset
+
             log(f"  Building {clip_duration}s intro/outro …")
-            create_image_clip(prepend_asset, prepend_clip, width, height, fps,
+            create_image_clip(intro_img, prepend_clip, width, height, fps,
                              duration=clip_duration, include_audio=audio)
             create_image_clip(append_asset, append_clip, width, height, fps,
                              duration=clip_duration, include_audio=audio)

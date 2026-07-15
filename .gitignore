@@ -32,6 +32,10 @@ SourceVids/*
 # so the real WGU art travels with the repo. Replace those two files to
 # update the branding, then rebuild/release.
 
+# The WGU PowerPoint template IS committed (template/) as the source for the
+# branding images; ignore only PowerPoint's temporary lock files.
+~$*.pptx
+
 # OS / editor artefacts
 .DS_Store
 Thumbs.db
