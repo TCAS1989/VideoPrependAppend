@@ -65,10 +65,13 @@ def resource_dirs() -> list:
     """
     dirs = []
     if getattr(sys, "frozen", False):
+        # The .exe's own folder comes FIRST so drop-in overrides (an 'assets'
+        # or 'ffmpeg' folder placed next to the app) take priority over the
+        # copies baked into the bundle.
+        dirs.append(os.path.dirname(sys.executable))
         meipass = getattr(sys, "_MEIPASS", None)
         if meipass:
             dirs.append(meipass)
-        dirs.append(os.path.dirname(sys.executable))
     else:
         dirs.append(os.path.dirname(os.path.abspath(__file__)))
     # De-duplicate while preserving order.
@@ -138,9 +141,73 @@ def ffmpeg_available() -> bool:
 
 
 def default_asset(name: str) -> str:
-    """Return the path to a bundled default branding asset, or '' if missing."""
+    """
+    Return the path to the default branding asset *name*.
+
+    resource_path() searches the .exe's own folder before the bundled copy,
+    so an admin can override the placeholders by dropping real images into an
+    'assets' folder next to WGUVideoBrander.exe -- no rebuild required.
+    Returns '' if not found anywhere.
+    """
     p = resource_path("assets", name)
     return p if os.path.isfile(p) else ""
+
+
+# ---------------------------------------------------------------------------
+# Persistent settings (so chosen branding images stick between sessions)
+# ---------------------------------------------------------------------------
+
+def config_dir() -> str:
+    """Per-user folder for storing settings."""
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    d = os.path.join(base, "WGUVideoBrander")
+    return d
+
+
+def _settings_path() -> str:
+    return os.path.join(config_dir(), "settings.json")
+
+
+def load_settings() -> dict:
+    """Load persisted settings; return {} if none/unreadable."""
+    try:
+        with open(_settings_path(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_settings(settings: dict) -> None:
+    """Persist *settings* (best-effort; ignores write errors)."""
+    try:
+        os.makedirs(config_dir(), exist_ok=True)
+        with open(_settings_path(), "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2)
+    except OSError:
+        pass
+
+
+def active_branding() -> tuple:
+    """
+    Return (prepend_path, append_path) to use as the current branding.
+
+    Preference: a saved custom image (if it still exists) -> the default
+    (drop-in override next to the .exe, else the bundled placeholder).
+    """
+    settings = load_settings()
+    result = []
+    for key, default_name in (("prepend", DEFAULT_PREPEND_ASSET),
+                             ("append", DEFAULT_APPEND_ASSET)):
+        saved = settings.get(key)
+        if saved and os.path.isfile(saved):
+            result.append(saved)
+        else:
+            result.append(default_asset(default_name))
+    return tuple(result)
 
 
 # ---------------------------------------------------------------------------

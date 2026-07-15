@@ -27,10 +27,10 @@ ModifiedVids/*
 SourceVids/*
 !SourceVids/.gitkeep
 
-# Legacy user-provided image assets in the project root (old CLI location).
-# The app's default branding lives in assets/ and IS committed (placeholders).
-/PrependAsset.png
-/AppendAsset.png
+# NOTE: branding images are intentionally NOT ignored. The app's intro/outro
+# live in assets/PrependAsset.png and assets/AppendAsset.png and ARE committed
+# so the real WGU art travels with the repo. Replace those two files to
+# update the branding, then rebuild/release.
 
 # OS / editor artefacts
 .DS_Store

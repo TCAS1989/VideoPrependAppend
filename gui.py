@@ -82,10 +82,11 @@ class BranderApp:
 
         # State ------------------------------------------------------------
         self.selected_paths = []            # files/folders the user added
-        self.prepend_path = tk.StringVar(value=core.default_asset(
-            core.DEFAULT_PREPEND_ASSET))
-        self.append_path = tk.StringVar(value=core.default_asset(
-            core.DEFAULT_APPEND_ASSET))
+        # Start from the saved custom branding (falls back to the bundled
+        # default / drop-in override).
+        saved_prepend, saved_append = core.active_branding()
+        self.prepend_path = tk.StringVar(value=saved_prepend)
+        self.append_path = tk.StringVar(value=saved_append)
         self.add_branding = tk.BooleanVar(value=True)
         self.do_trim = tk.BooleanVar(value=False)
         self.trim_start = tk.StringVar(value="5")
@@ -174,17 +175,28 @@ class BranderApp:
                              justify="center")
         self.e_end.pack(side="left")
 
-        # --- Branding images (power users, collapsible) ------------------
+        # --- Branding images (collapsible, open by default) --------------
         self.brand_open = tk.BooleanVar(value=False)
         self.brand_toggle = tk.Label(
-            opts, text="▸ Branding images (advanced)", bg=BG, fg=MUTED,
+            opts, text="▾ Branding images", bg=BG, fg=MUTED,
             font=("Segoe UI", 9, "underline"), cursor="hand2")
-        self.brand_toggle.pack(anchor="w", padx=10, pady=(0, 4))
+        self.brand_toggle.pack(anchor="w", padx=10, pady=(0, 2))
         self.brand_toggle.bind("<Button-1>", lambda e: self._toggle_brand())
 
         self.brand_panel = tk.Frame(opts, bg=BG)
-        self._brand_row(self.brand_panel, "Intro image:", self.prepend_path)
-        self._brand_row(self.brand_panel, "Outro image:", self.append_path)
+        tk.Label(self.brand_panel,
+                 text="These images are used as the intro/outro. Set them once "
+                      "— they're remembered next time.\nTip: an admin can also "
+                      "drop assets\\PrependAsset.png / AppendAsset.png next to "
+                      "the app to change them for everyone.",
+                 bg=BG, fg=MUTED, font=("Segoe UI", 8), justify="left").pack(
+            anchor="w", pady=(0, 4))
+        self._brand_row(self.brand_panel, "Intro image:", self.prepend_path,
+                       core.DEFAULT_PREPEND_ASSET)
+        self._brand_row(self.brand_panel, "Outro image:", self.append_path,
+                       core.DEFAULT_APPEND_ASSET)
+        # Open it by default so the branding images are easy to find.
+        self._toggle_brand()
 
         # --- Output ------------------------------------------------------
         outf = tk.Frame(opts, bg=BG)
@@ -223,15 +235,40 @@ class BranderApp:
 
         self._sync_enable()
 
-    def _brand_row(self, parent, label, var):
+    def _brand_row(self, parent, label, var, default_name):
         row = tk.Frame(parent, bg=BG)
         row.pack(fill="x", pady=2)
         tk.Label(row, text=label, bg=BG, fg=MUTED, width=11, anchor="w",
                  font=("Segoe UI", 9)).pack(side="left")
         tk.Entry(row, textvariable=var).pack(
             side="left", fill="x", expand=True, padx=(0, 4))
-        self._mkbtn(row, "…", lambda: self._browse_image(var), subtle=True).pack(
-            side="left")
+        self._mkbtn(row, "Choose…", lambda: self._browse_image(var),
+                   subtle=True).pack(side="left")
+        self._mkbtn(row, "Default",
+                   lambda: self._reset_image(var, default_name),
+                   subtle=True).pack(side="left", padx=(4, 0))
+
+    def _settings_key(self, var):
+        return "prepend" if var is self.prepend_path else "append"
+
+    def _persist_branding(self, var):
+        """Save the current value of *var* to settings (or clear if default)."""
+        settings = core.load_settings()
+        key = self._settings_key(var)
+        default_name = (core.DEFAULT_PREPEND_ASSET if key == "prepend"
+                       else core.DEFAULT_APPEND_ASSET)
+        value = var.get()
+        # If it points at the bundled default, don't pin it -- let the app keep
+        # following the default/override automatically.
+        if value and value != core.default_asset(default_name):
+            settings[key] = value
+        else:
+            settings.pop(key, None)
+        core.save_settings(settings)
+
+    def _reset_image(self, var, default_name):
+        var.set(core.default_asset(default_name))
+        self._persist_branding(var)
 
     def _mkbtn(self, parent, text, cmd, subtle=False, big=False):
         bg = PANEL if subtle else ACCENT
@@ -250,10 +287,10 @@ class BranderApp:
     def _toggle_brand(self):
         if self.brand_open.get():
             self.brand_panel.pack_forget()
-            self.brand_toggle.configure(text="▸ Branding images (advanced)")
+            self.brand_toggle.configure(text="▸ Branding images")
         else:
             self.brand_panel.pack(fill="x", padx=10, pady=(0, 6))
-            self.brand_toggle.configure(text="▾ Branding images (advanced)")
+            self.brand_toggle.configure(text="▾ Branding images")
         self.brand_open.set(not self.brand_open.get())
 
     def _on_drop(self, event):
@@ -286,6 +323,7 @@ class BranderApp:
                       ("All files", "*.*")])
         if f:
             var.set(f)
+            self._persist_branding(var)
 
     def _add_paths(self, paths):
         for p in paths:

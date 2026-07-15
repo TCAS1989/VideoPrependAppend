@@ -45,11 +45,18 @@ Grab the latest **`WGUVideoBrander.zip`** from the
 6. By default, finished videos are saved into a **`Branded`** folder next to
    each source video. (You can pick a different output folder in **Options**.)
 
-### Advanced: custom branding images
+### Setting the branding images
 
-The app ships with the WGU intro/outro built in. To use different images,
-expand **Branding images (advanced)** in Options and choose your own intro and
-outro image (PNG/JPG). These are shown full-screen for 5 seconds each.
+The app ships with **placeholder** intro/outro images. To use the real WGU art,
+open **Branding images** in Options and click **Choose…** for the intro and
+outro (PNG/JPG). Your choices are **remembered** the next time you open the app.
+Click **Default** to go back to the built-in image. Each image is shown
+full-screen for 5 seconds.
+
+**Admin tip — set the branding for everyone without rebuilding:** create an
+`assets` folder next to `WGUVideoBrander.exe` containing `PrependAsset.png` and
+`AppendAsset.png`. Those override the built-in placeholders for every user of
+that copy.
 
 ### Supported video formats
 
@@ -99,10 +106,11 @@ python -m pip install -r requirements.txt
 python get_ffmpeg.py
 ```
 
-### Put in the real branding images (optional)
+### Put in the real branding images
 
-Replace the placeholder images in **`assets/`** with the official WGU art,
-keeping the same filenames:
+The repo ships with **placeholder** intro/outro images so it builds out of the
+box. To ship the real branding, the **repo owner/maintainer** replaces these
+two committed files with the official WGU art, keeping the same filenames:
 
 ```
 assets\PrependAsset.png   <- shown at the START of every video
@@ -110,6 +118,12 @@ assets\AppendAsset.png    <- shown at the END of every video
 ```
 
 Full-HD (1920×1080) PNGs work best; the app scales them to match each video.
+
+> These files are **committed to the repo** (they are *not* in `.gitignore`),
+> so the real art travels with the project. After replacing them, commit the
+> change and **rebuild/publish a new release** — see
+> ["Do updated images reach existing users?"](#do-updated-images-reach-existing-users)
+> for how the update actually reaches people.
 
 ### Build
 
@@ -124,6 +138,26 @@ python -m PyInstaller WGUVideoBrander.spec --noconfirm
 The finished app appears in **`dist\WGUVideoBrander\`**. Zip that folder (or
 share it as-is) and hand it to users — everything they need, including ffmpeg,
 is inside.
+
+---
+
+## Do updated images reach existing users?
+
+**Short answer: not automatically.** The branding images are baked into the
+`.exe` when it is built. If the maintainer updates the images in the repo, that
+only changes **future builds** — copies people already downloaded keep their
+old branding. To roll out new branding, use one of these:
+
+| Method | Who does it | Reaches whom |
+|---|---|---|
+| **Rebuild + publish a new release**, users re-download | maintainer | everyone who updates |
+| **Drop `assets\PrependAsset.png` / `AppendAsset.png` next to the `.exe`** | local admin | that one copy/machine |
+| **In-app "Branding images → Choose…"** (remembered between sessions) | each user | that user |
+
+If you want branding to **auto-update from the repo** — the maintainer updates
+the images once and every user's app pulls them on next launch — that needs an
+extra feature (the app downloading the images from the repo's raw URL at
+startup). It isn't built yet; it's a straightforward addition if desired.
 
 ---
 
