@@ -1,0 +1,5 @@
+# Runtime + build dependencies for the WGU Video Brander.
+# The app itself only needs the standard library + ffmpeg at run time;
+# these are for drag-and-drop and for building the .exe.
+tkinterdnd2>=0.4.0
+pyinstaller>=6.0

@@ -1,85 +1,55 @@
-# VideoPrependAppend
+# WGU Video Brander
 
-Automatically prepends and appends a 5-second image clip to every video in a
-folder.  
-For each video in `./SourceVids`, the script:
+Add WGU branding (a short intro + outro) to videos — and, when needed, trim
+old branding off the start or end first.
 
-1. Converts `PrependAsset.png` → 5-second video clip
-2. Prepends that clip to the source video
-3. Converts `AppendAsset.png` → 5-second video clip
-4. Appends that clip to the end of the source video
-5. Saves the combined video (same filename) to `./ModifiedVids`
+There are two ways to use it:
 
----
+- **The app (`WGUVideoBrander.exe`)** — a simple click-and-run window for
+  everyone. **No Python, no command line, no ffmpeg install.** Just download,
+  double-click, drag in your videos, and press **Start**.
+- **The command-line tool (`process_videos.py`)** — for power users who want to
+  batch-process folders or script the process.
 
-## Requirements
+Both share the same video engine (`core.py`), so the results are identical.
 
-| Requirement | Version |
-|---|---|
-| Python | 3.6 or later |
-| ffmpeg / ffprobe | Any recent release |
-
-> **No Python packages need to be installed** — the script only uses the
-> standard library.  
-> ffmpeg must be installed separately and available on your system `PATH`.
+![The WGU Video Brander app: drag-and-drop area, branding and trim options, and a progress log](docs/screenshot.png)
 
 ---
 
-## 1 — Install ffmpeg (Windows)
+## Download
 
-### Option A — winget (Windows 10/11, recommended)
-
-```powershell
-winget install --id Gyan.FFmpeg -e
-```
-
-After installation, **close and reopen your terminal** so `PATH` is refreshed.
-
-### Option B — Manual download
-
-1. Go to <https://www.gyan.dev/ffmpeg/builds/> and download the latest
-   **ffmpeg-release-essentials.zip**.
-2. Extract the archive (e.g. to `C:\ffmpeg`).
-3. Add `C:\ffmpeg\bin` to your system `PATH`:
-   - Open **Start → "Edit the system environment variables"**.
-   - Click **Environment Variables**.
-   - Under **System variables**, select `Path` → **Edit** → **New**.
-   - Type `C:\ffmpeg\bin` and click **OK** on all dialogs.
-4. Open a **new** terminal and verify:
-
-```powershell
-ffmpeg -version
-```
+Grab the latest **`WGUVideoBrander.zip`** from the
+[**Releases**](../../releases) page, unzip it anywhere, and run
+`WGUVideoBrander.exe`. Nothing else to install.
 
 ---
 
-## 2 — Verify Python is installed
+## For most people: using the app
 
-```powershell
-python --version
-```
+1. Get the **`WGUVideoBrander`** folder (from your IT/admin, or build it —
+   see below). Keep the folder together.
+2. Double-click **`WGUVideoBrander.exe`**.
+   - First launch may be a little slow, and Windows SmartScreen/antivirus may
+     ask you to confirm an unrecognized app — click **More info → Run anyway**.
+3. **Add your videos** one of two ways:
+   - **Drag and drop** video files (or a whole folder) onto the drop area, or
+   - Click **Add file(s)…** / **Add folder…**.
+4. Choose what to do:
+   - ☑ **Add WGU branding** — puts the WGU intro before and outro after each
+     video (on by default).
+   - ☐ **Trim old branding first** — turn this on only if the video already has
+     old branding to remove. Enter how many **seconds to cut off the start**
+     and/or **off the end**.
+5. Press **Start**. Progress shows in the log at the bottom.
+6. By default, finished videos are saved into a **`Branded`** folder next to
+   each source video. (You can pick a different output folder in **Options**.)
 
-If Python is not found, download the installer from <https://www.python.org/downloads/>  
-and make sure **"Add Python to PATH"** is checked during installation.
+### Advanced: custom branding images
 
----
-
-## 3 — Set up the project
-
-```powershell
-# 1. Clone (or download) this repository
-git clone https://github.com/TCAS1989/VideoPrependAppend.git
-cd VideoPrependAppend
-
-# 2. Place your image assets in the root of the project:
-#      PrependAsset.png   ← shown at the START of every video
-#      AppendAsset.png    ← shown at the END of every video
-
-# 3. Copy your source videos into the SourceVids folder:
-#      SourceVids\video1.mp4
-#      SourceVids\clip2.mov
-#      ...
-```
+The app ships with the WGU intro/outro built in. To use different images,
+expand **Branding images (advanced)** in Options and choose your own intro and
+outro image (PNG/JPG). These are shown full-screen for 5 seconds each.
 
 ### Supported video formats
 
@@ -87,32 +57,73 @@ cd VideoPrependAppend
 
 ---
 
-## 4 — Run the script
+## For power users: the command line
+
+Requires **Python 3.6+**. ffmpeg is used from the bundled `ffmpeg/` folder if
+present, otherwise from your system `PATH`.
 
 ```powershell
+# Brand every video in SourceVids -> ModifiedVids (bundled WGU assets)
 python process_videos.py
+
+# Custom in/out folders
+python process_videos.py "C:\clips" "C:\clips\out"
+
+# Brand AND trim 5s off the start, 3s off the end
+python process_videos.py "C:\clips" "C:\out" --trim-start 5 --trim-end 3
+
+# Trim only, no branding
+python process_videos.py "C:\clips" "C:\out" --no-branding --trim-start 5
+
+# Use custom branding images
+python process_videos.py --prepend intro.png --append outro.png
 ```
 
-### Example output
+Run `python process_videos.py --help` for all options.
+
+---
+
+## Building the app (`.exe`) yourself
+
+You only need to do this to (re)create the distributable app — for example
+after dropping in the **real WGU branding images**.
+
+### One-time setup
+
+```powershell
+# 1. Install build dependencies
+python -m pip install -r requirements.txt
+
+# 2. Download the ffmpeg binaries that get bundled (~100 MB each).
+#    These are NOT stored in git.
+python get_ffmpeg.py
+```
+
+### Put in the real branding images (optional)
+
+Replace the placeholder images in **`assets/`** with the official WGU art,
+keeping the same filenames:
 
 ```
-Found 3 video file(s) to process.
-
-[1/3] Processing: intro_clip.mp4
-  Resolution : 1920x1080
-  Frame rate : 29.970 fps
-  Audio      : yes
-  Creating 5s prepend clip from 'PrependAsset.png' …
-  Creating 5s append clip from 'AppendAsset.png' …
-  Concatenating clips …
-  Saved → ModifiedVids\intro_clip.mp4
-
-...
-
-==================================================
-Done. 3 succeeded, 0 failed.
-Modified videos are in './ModifiedVids/'.
+assets\PrependAsset.png   <- shown at the START of every video
+assets\AppendAsset.png    <- shown at the END of every video
 ```
+
+Full-HD (1920×1080) PNGs work best; the app scales them to match each video.
+
+### Build
+
+```powershell
+# Easiest: run everything at once
+build.bat
+
+# ...or manually:
+python -m PyInstaller WGUVideoBrander.spec --noconfirm
+```
+
+The finished app appears in **`dist\WGUVideoBrander\`**. Zip that folder (or
+share it as-is) and hand it to users — everything they need, including ffmpeg,
+is inside.
 
 ---
 
@@ -120,26 +131,34 @@ Modified videos are in './ModifiedVids/'.
 
 ```
 VideoPrependAppend/
-├── process_videos.py     ← main script
-├── PrependAsset.png      ← your prepend image (user-provided)
-├── AppendAsset.png       ← your append image (user-provided)
-├── SourceVids/           ← place source videos here
-│   └── example.mp4
-└── ModifiedVids/         ← processed videos are written here
-    └── example.mp4
+├── gui.py                  ← the desktop app (window, drag & drop)
+├── core.py                 ← shared ffmpeg engine (trim + branding)
+├── process_videos.py       ← command-line batch tool
+├── get_ffmpeg.py           ← downloads ffmpeg for bundling
+├── build.bat               ← one-click build script
+├── WGUVideoBrander.spec    ← PyInstaller build recipe
+├── requirements.txt
+├── assets/                 ← default branding images (bundled into the app)
+│   ├── PrependAsset.png
+│   └── AppendAsset.png
+├── ffmpeg/                 ← ffmpeg.exe / ffprobe.exe (fetched, not in git)
+├── SourceVids/             ← optional: source videos for the CLI
+└── ModifiedVids/           ← optional: CLI output
 ```
 
 ---
 
-## Notes
+## How it works
 
-- The script re-encodes all videos to **H.264 / AAC** (MP4 container).
-  Original files in `SourceVids` are **never modified**.
-- Image assets are scaled to match each video's resolution with
-  letterboxing/pillarboxing to avoid distortion.
-- If a source video has no audio track, the appended/prepended clips will
-  also have no audio so the concat remains consistent.
-- Processing time depends on the length and resolution of the source videos.
+- Each video is (optionally) **trimmed** and then gets a **5-second intro**
+  prepended and a **5-second outro** appended, in a **single re-encode pass**
+  (so trimming adds no extra quality loss).
+- Everything is re-encoded to **H.264 / AAC** in an MP4 container. Source files
+  are **never modified**.
+- Branding images are scaled to each video's resolution with
+  letterboxing/pillarboxing so nothing is distorted.
+- If a source video has no audio, the intro/outro are silent to match, so the
+  join stays clean.
 
 ---
 
@@ -147,7 +166,8 @@ VideoPrependAppend/
 
 | Symptom | Fix |
 |---|---|
-| `'ffmpeg' is not recognized` | Ensure ffmpeg is installed and `C:\ffmpeg\bin` is in your PATH, then reopen your terminal. |
-| `Error: required asset 'PrependAsset.png' not found` | Make sure `PrependAsset.png` is in the same folder as `process_videos.py`. |
-| `No supported video files found in 'SourceVids/'` | Check that your videos are in the `SourceVids` folder and have a supported extension. |
-| Output video has wrong resolution | The script matches each source video's resolution automatically — no action needed. |
+| Windows warns about an unrecognized app | Click **More info → Run anyway** (the app is unsigned). |
+| App says ffmpeg was not found (from source) | Run `python get_ffmpeg.py`, or put `ffmpeg.exe`/`ffprobe.exe` in the `ffmpeg` folder. |
+| "Trim amount is longer than the video" | Reduce the seconds you're trimming off the start/end. |
+| Branding image not found | Expand **Branding images (advanced)** and pick valid image files, or rebuild after placing them in `assets/`. |
+| Output looks wrong / no branding | Make sure at least one of **Add WGU branding** or **Trim** is turned on. |
