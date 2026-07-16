@@ -1,0 +1,10 @@
+# Dependencies for the WGU Video Brander.
+#
+# Runtime (bundled into the .exe):
+tkinterdnd2>=0.4.0      # drag-and-drop
+pillow>=9.0             # drawing the title text onto the intro slide
+
+# Build-time only:
+pyinstaller>=6.0        # builds the .exe
+python-pptx>=0.6        # (optional) inspect the WGU template
+pywin32>=305            # (optional) render_template.py -> regenerate slides

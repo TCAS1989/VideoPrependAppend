@@ -1,305 +1,116 @@
 """
-process_videos.py
+process_videos.py  --  command-line batch tool (for power users).
 
-For every video file found in ./SourceVids, this script:
-  1. Converts ./PrependAsset.png into a 5-second video clip.
-  2. Prepends that clip to the source video.
-  3. Converts ./AppendAsset.png into a 5-second video clip.
-  4. Appends that clip to the end of the source video.
-  5. Writes the result (same filename) to ./ModifiedVids.
+Processes every video in a source folder and writes branded copies to an
+output folder.  Shares all ffmpeg/rendering logic with the GUI via core.py.
 
-Requirements: Python 3.6+ and ffmpeg/ffprobe available on PATH.
+Usage:
+    python process_videos.py                       # SourceVids -> ModifiedVids
+    python process_videos.py IN OUT                # custom folders
+    python process_videos.py IN OUT --course-title "C949 - Data Structures"
+    python process_videos.py IN OUT --video-title "Overview" --course-title "C949"
+    python process_videos.py IN OUT --trim-start 5 --trim-end 3
+    python process_videos.py IN OUT --no-branding --trim-start 5
+
+By default it renders the WGU title-slide intro (drawing the given titles onto
+it) and appends the WGU outro.  In batch mode the same titles are applied to
+every video; use the GUI for per-video titles.  Requires ffmpeg/ffprobe
+(bundled copies in ./ffmpeg are used if present, otherwise PATH).
 """
 
-import glob
-import json
+import argparse
 import os
-import subprocess
 import sys
-import tempfile
 
+import core
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-SOURCE_DIR = "SourceVids"
-OUTPUT_DIR = "ModifiedVids"
-PREPEND_ASSET = "PrependAsset.png"
-APPEND_ASSET = "AppendAsset.png"
-CLIP_DURATION = 5  # seconds
-
-VIDEO_EXTENSIONS = (
-    ".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv", ".m4v",
-    ".MP4", ".AVI", ".MOV", ".MKV", ".WMV", ".FLV", ".M4V",
-)
-
-
-# ---------------------------------------------------------------------------
-# ffprobe helpers
-# ---------------------------------------------------------------------------
-
-def get_video_info(video_path: str) -> dict:
-    """Return parsed ffprobe JSON for *video_path*."""
-    cmd = [
-        "ffprobe", "-v", "quiet",
-        "-print_format", "json",
-        "-show_streams", "-show_format",
-        video_path,
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    return json.loads(result.stdout)
-
-
-def has_audio_stream(info: dict) -> bool:
-    """Return True if the video contains at least one audio stream."""
-    return any(s.get("codec_type") == "audio" for s in info.get("streams", []))
-
-
-def get_video_dimensions(info: dict) -> tuple:
-    """Return (width, height) from the first video stream; default 1920x1080."""
-    for stream in info.get("streams", []):
-        if stream.get("codec_type") == "video":
-            return int(stream["width"]), int(stream["height"])
-    return 1920, 1080
-
-
-def get_video_fps(info: dict) -> float:
-    """Return frames-per-second from the first video stream; default 25."""
-    for stream in info.get("streams", []):
-        if stream.get("codec_type") == "video":
-            fps_str = stream.get("r_frame_rate", "25/1")
-            try:
-                num, den = fps_str.split("/")
-                num, den = int(num), int(den)
-                if den != 0:
-                    return float(num) / den
-            except (ValueError, ZeroDivisionError):
-                pass
-    return 25.0
-
-
-# ---------------------------------------------------------------------------
-# ffmpeg helpers
-# ---------------------------------------------------------------------------
-
-def create_image_clip(
-    image_path: str,
-    output_path: str,
-    width: int,
-    height: int,
-    fps: float,
-    duration: int = CLIP_DURATION,
-    include_audio: bool = False,
-) -> None:
-    """
-    Convert a static PNG image into an H.264 video clip.
-
-    The image is scaled (with letterboxing/pillarboxing if needed) to match
-    *width* x *height* and held for *duration* seconds at *fps*.
-    A silent AAC track is added when *include_audio* is True so the clip
-    can be concatenated with videos that have audio.
-    """
-    vf = (
-        f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,"
-        "format=yuv420p"
-    )
-
-    cmd = ["ffmpeg", "-y", "-loop", "1", "-framerate", str(fps), "-i", image_path]
-
-    if include_audio:
-        cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
-
-    cmd += [
-        "-t", str(duration),
-        "-vf", vf,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-    ]
-
-    if include_audio:
-        cmd += ["-c:a", "aac", "-shortest"]
-
-    cmd.append(output_path)
-
-    subprocess.run(cmd, check=True, capture_output=True)
-
-
-def concatenate_videos(
-    video_paths: list,
-    output_path: str,
-    with_audio: bool,
-) -> None:
-    """
-    Concatenate *video_paths* in order using ffmpeg's concat filter.
-
-    When *with_audio* is True, audio streams are merged as well.
-
-    All video streams are normalised to yuv420p and all audio streams are
-    normalised to fltp / 44100 Hz / stereo before concatenation.  Using a
-    single aformat filter with all three parameters (sample_fmts, sample_rates,
-    channel_layouts) ensures that libswresample handles sample-format, rate, and
-    channel-layout conversion in one pass — including mono-to-stereo upmixing
-    and surround-to-stereo downmixing.  The encoder-level -ac/-ar options act
-    as a belt-and-suspenders fallback.
-    """
-    inputs = []
-    for path in video_paths:
-        inputs += ["-i", path]
-
-    n = len(video_paths)
-
-    if with_audio:
-        # Normalise each stream before feeding into concat so that pixel
-        # format, SAR, and audio parameters are consistent across all inputs.
-        # setsar=1 forces a 1:1 sample aspect ratio to match the image clips.
-        # A single aformat with all three constraints lets libswresample
-        # perform format, rate, and channel-layout conversion together.
-        filter_parts = []
-        for i in range(n):
-            filter_parts.append(f"[{i}:v]format=yuv420p,setsar=1[v{i}]")
-            filter_parts.append(
-                f"[{i}:a]aformat=sample_fmts=fltp"
-                f":sample_rates=44100:channel_layouts=stereo[a{i}]"
-            )
-        concat_in = "".join(f"[v{i}][a{i}]" for i in range(n))
-        filter_parts.append(f"{concat_in}concat=n={n}:v=1:a=1[outv][outa]")
-        filter_complex = ";".join(filter_parts)
-        cmd = (
-            ["ffmpeg", "-y"]
-            + inputs
-            + [
-                "-filter_complex", filter_complex,
-                "-map", "[outv]",
-                "-map", "[outa]",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-c:a", "aac",
-                "-ar", "44100",
-                "-ac", "2",
-                output_path,
-            ]
-        )
-    else:
-        # Normalise each video stream to yuv420p with a 1:1 SAR.
-        filter_parts = []
-        for i in range(n):
-            filter_parts.append(f"[{i}:v]format=yuv420p,setsar=1[v{i}]")
-        concat_in = "".join(f"[v{i}]" for i in range(n))
-        filter_parts.append(f"{concat_in}concat=n={n}:v=1:a=0[outv]")
-        filter_complex = ";".join(filter_parts)
-        cmd = (
-            ["ffmpeg", "-y"]
-            + inputs
-            + [
-                "-filter_complex", filter_complex,
-                "-map", "[outv]",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                output_path,
-            ]
-        )
-
-    subprocess.run(cmd, check=True, capture_output=True)
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 def main() -> None:
-    # --- Validate required assets ----------------------------------------
-    for asset in (PREPEND_ASSET, APPEND_ASSET):
-        if not os.path.isfile(asset):
-            print(f"Error: required asset '{asset}' not found in the current directory.")
-            sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description="Add WGU branding (title-slide intro + outro) to videos, "
+                    "with optional trimming of old branding.")
+    parser.add_argument("source", nargs="?", default="SourceVids",
+                       help="folder of source videos (default: SourceVids)")
+    parser.add_argument("output", nargs="?", default="ModifiedVids",
+                       help="output folder (default: ModifiedVids)")
+    parser.add_argument("--video-title", default="",
+                       help="video title drawn on every intro (optional)")
+    parser.add_argument("--course-title", default="",
+                       help="course title drawn on every intro (optional)")
+    parser.add_argument("--intro-template", default=core.intro_template_path(),
+                       help="intro background image (default: bundled WGU slide)")
+    parser.add_argument("--append", default=core.active_branding()[1]
+                       or core.DEFAULT_APPEND_ASSET,
+                       help="outro image (default: bundled WGU slide)")
+    parser.add_argument("--no-branding", action="store_true",
+                       help="do not add branding (trim only)")
+    parser.add_argument("--trim-start", type=float, default=0.0,
+                       help="seconds to remove from the start")
+    parser.add_argument("--trim-end", type=float, default=0.0,
+                       help="seconds to remove from the end")
+    args = parser.parse_args()
 
-    if not os.path.isdir(SOURCE_DIR):
-        print(f"Error: source directory '{SOURCE_DIR}' not found.")
+    if not core.ffmpeg_available():
+        print("Error: ffmpeg/ffprobe not found. Install ffmpeg or place "
+              "ffmpeg.exe/ffprobe.exe in the 'ffmpeg' folder.")
         sys.exit(1)
 
-    # --- Discover video files ---------------------------------------------
-    video_files = [
-        f
-        for f in glob.glob(os.path.join(SOURCE_DIR, "*"))
-        if os.path.splitext(f)[1] in VIDEO_EXTENSIONS
-    ]
+    add_branding = not args.no_branding
 
-    if not video_files:
-        print(f"No supported video files found in '{SOURCE_DIR}/'.")
-        print(f"Supported extensions: {', '.join(sorted(set(VIDEO_EXTENSIONS)))}")
+    if not os.path.isdir(args.source):
+        print(f"Error: source directory '{args.source}' not found.")
+        sys.exit(1)
+
+    if add_branding:
+        if not os.path.isfile(args.intro_template):
+            print(f"Error: intro template '{args.intro_template}' not found.")
+            sys.exit(1)
+        if not os.path.isfile(args.append):
+            print(f"Error: outro image '{args.append}' not found.")
+            sys.exit(1)
+
+    videos = core.collect_videos([args.source])
+    if not videos:
+        print(f"No supported video files found in '{args.source}'.")
+        print(f"Supported: {', '.join(core.VIDEO_EXTENSIONS)}")
         sys.exit(0)
 
-    print(f"Found {len(video_files)} video file(s) to process.\n")
+    print(f"Found {len(videos)} video file(s) to process.\n")
+    os.makedirs(args.output, exist_ok=True)
 
-    # --- Create output directory ------------------------------------------
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    ok = fail = skip = 0
+    for i, video in enumerate(videos, 1):
+        name = os.path.basename(video)
+        out = os.path.join(args.output, name)
+        print(f"[{i}/{len(videos)}] Processing: {name}")
 
-    # --- Process each video -----------------------------------------------
-    success_count = 0
-    error_count = 0
-    skip_count = 0
-
-    for video_path in sorted(video_files):
-        filename = os.path.basename(video_path)
-        output_path = os.path.join(OUTPUT_DIR, filename)
-
-        print(f"[{success_count + error_count + skip_count + 1}/{len(video_files)}] Processing: {filename}")
-
-        if os.path.isfile(output_path):
-            print(f"  Skipping — output already exists: {output_path}\n")
-            skip_count += 1
+        if os.path.isfile(out):
+            print(f"  Skipping — output already exists: {out}\n")
+            skip += 1
             continue
 
         try:
-            info = get_video_info(video_path)
-            width, height = get_video_dimensions(info)
-            fps = get_video_fps(info)
-            audio = has_audio_stream(info)
-
-            print(f"  Resolution : {width}x{height}")
-            print(f"  Frame rate : {fps:.3f} fps")
-            print(f"  Audio      : {'yes' if audio else 'no'}")
-
-            with tempfile.TemporaryDirectory() as tmpdir:
-                prepend_clip = os.path.join(tmpdir, "prepend.mp4")
-                append_clip = os.path.join(tmpdir, "append.mp4")
-
-                print(f"  Creating {CLIP_DURATION}s prepend clip from '{PREPEND_ASSET}' …")
-                create_image_clip(
-                    PREPEND_ASSET, prepend_clip, width, height, fps,
-                    duration=CLIP_DURATION, include_audio=audio,
-                )
-
-                print(f"  Creating {CLIP_DURATION}s append clip from '{APPEND_ASSET}' …")
-                create_image_clip(
-                    APPEND_ASSET, append_clip, width, height, fps,
-                    duration=CLIP_DURATION, include_audio=audio,
-                )
-
-                print("  Concatenating clips …")
-                concatenate_videos(
-                    [prepend_clip, video_path, append_clip],
-                    output_path,
-                    with_audio=audio,
-                )
-
-            print(f"  Saved → {output_path}\n")
-            success_count += 1
-
-        except subprocess.CalledProcessError as exc:
-            error_count += 1
-            print(f"  ERROR processing '{filename}'.")
-            stderr = exc.stderr.decode(errors="replace") if exc.stderr else ""
-            if stderr:
-                # Show the last 20 lines so the relevant ffmpeg error is visible
-                last_lines = stderr.strip().splitlines()[-20:]
-                print("  ffmpeg output (last lines):\n    " + "\n    ".join(last_lines))
+            core.process_video(
+                video, out,
+                add_branding=add_branding,
+                intro_template=args.intro_template,
+                append_asset=args.append,
+                video_title=args.video_title,
+                course_title=args.course_title,
+                trim_start=args.trim_start,
+                trim_end=args.trim_end,
+                log=print,
+            )
             print()
+            ok += 1
+        except core.ProcessError as exc:
+            fail += 1
+            print(f"  ERROR: {exc}\n")
 
-    # --- Summary ----------------------------------------------------------
     print("=" * 50)
-    print(f"Done. {success_count} succeeded, {error_count} failed, {skip_count} skipped.")
-    if success_count:
-        print(f"Modified videos are in './{OUTPUT_DIR}/'.")
+    print(f"Done. {ok} succeeded, {fail} failed, {skip} skipped.")
+    if ok:
+        print(f"Modified videos are in '{args.output}'.")
 
 
 if __name__ == "__main__":
