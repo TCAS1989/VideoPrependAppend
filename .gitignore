@@ -28,13 +28,13 @@ SourceVids/*
 !SourceVids/.gitkeep
 
 # NOTE: branding images are intentionally NOT ignored. The app's intro/outro
-# live in assets/PrependAsset.png and assets/AppendAsset.png and ARE committed
+# live in assets/intro_template.png and assets/AppendAsset.png and ARE committed
 # so the real WGU art travels with the repo. Replace those two files to
 # update the branding, then rebuild/release.
 
-# The WGU PowerPoint template IS committed (template/) as the source for the
-# branding images; ignore only PowerPoint's temporary lock files.
-~$*.pptx
+# The WGU PowerPoint template is NOT committed (WGU-internal). Drop it into
+# template/ locally to regenerate the branding PNGs with render_template.py.
+*.pptx
 
 # OS / editor artefacts
 .DS_Store

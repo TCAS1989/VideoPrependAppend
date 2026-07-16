@@ -69,7 +69,8 @@ built-in copies for every user of that copy.
 
 **Where the official images live:** the current WGU intro template / outro
 always live in this repo's [`assets/`](assets) folder, generated from the WGU
-PowerPoint in [`template/`](template) via `render_template.py`. Branding rarely
+PowerPoint via `render_template.py`. (The source `.pptx` is WGU-internal and is
+**not** committed — drop it into `template/` locally to regenerate.) Branding rarely
 changes, but if it ever does, download the latest PNGs from there and either
 drop them next to the app (admin tip above) or pick them via **Choose…** — no
 full re-download needed. The bundled release is simply a snapshot of those same
@@ -209,7 +210,7 @@ VideoPrependAppend/
 ├── assets/                 ← branding images (bundled into the app)
 │   ├── intro_template.png  ← WGU title slide (titles drawn on at run time)
 │   └── AppendAsset.png     ← WGU outro
-├── template/               ← source WGU PowerPoint for render_template.py
+├── template/               ← drop the WGU .pptx here (not committed) to re-render
 ├── ffmpeg/                 ← ffmpeg.exe / ffprobe.exe (fetched, not in git)
 ├── SourceVids/             ← optional: source videos for the CLI
 └── ModifiedVids/           ← optional: CLI output
