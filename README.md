@@ -14,7 +14,7 @@ There are two ways to use it:
 
 Both share the same video engine (`core.py`), so the results are identical.
 
-![The WGU Video Brander app: drag-and-drop area, branding and trim options, and a progress log](docs/screenshot.png)
+![The WGU Video Brander app: drag-and-drop area, a per-video Video Title / Course Title list, and branding, trim, and output options](docs/screenshot.png)
 
 ---
 
